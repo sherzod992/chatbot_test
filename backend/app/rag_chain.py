@@ -21,9 +21,9 @@ class RAGChain:
     def __init__(self):
         """RAG 체인 초기화"""
         # OpenAI LLM 초기화
+        # ChatOpenAI는 환경 변수 OPENAI_API_KEY를 자동으로 읽어옵니다
         self.llm = ChatOpenAI(
             model="gpt-3.5-turbo",  # 또는 "gpt-4", "gpt-4-turbo-preview"
-            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             temperature=0.7
         )
         
