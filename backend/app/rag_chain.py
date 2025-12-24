@@ -3,14 +3,19 @@ Advanced RAG 체인: 검색 + LLM + 외부 API
 """
 
 from typing import List, Dict, Any, Optional, AsyncIterator
+import os
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.vectorstore import get_vectorstore
 from app.utils import logger
+from dotenv import load_dotenv
 
-# OpenAI API 키 (테스트용 - 코드에 직접 저장)
-# OPENAI_API_KEY removed - use environment variable instead"
+# 환경 변수 로드
+load_dotenv()
+
+# OpenAI API 키 (환경 변수에서 가져오기)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 
 class RAGChain:
