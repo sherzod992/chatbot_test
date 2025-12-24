@@ -20,3 +20,26 @@
 - logger: 전역 로거 인스턴스 (로깅 설정 포함)
 - 데이터베이스, API 키, 경로 등의 환경 설정값들
 """
+
+import logging
+from pathlib import Path
+
+# 프로젝트 루트 디렉토리
+BASE_DIR = Path(__file__).parent.parent
+
+# ChromaDB 경로
+CHROMA_DB_PATH = BASE_DIR / "chroma_db"
+CHROMA_DB_PATH.mkdir(exist_ok=True)
+
+# 데이터 디렉토리 경로
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+logger = logging.getLogger(__name__)

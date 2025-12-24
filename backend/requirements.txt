@@ -1,0 +1,26 @@
+# FastAPI 및 서버
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+sse-starlette>=1.6.5
+python-multipart>=0.0.6
+
+# 벡터 DB 및 LangChain
+chromadb>=0.4.15
+langchain>=0.1.0
+langchain-community>=0.4.0
+langchain-google-genai>=0.0.6
+google-generativeai>=0.3.0
+sentence-transformers>=2.0.0
+
+# 데이터베이스
+mysql-connector-python>=8.2.0
+
+# HTTP 클라이언트
+httpx>=0.25.0
+
+# 환경 변수 관리
+python-dotenv>=1.0.0
+
+# 데이터 검증 (FastAPI에 포함되지만 명시적으로)
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
