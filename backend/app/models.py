@@ -1,25 +1,65 @@
 """
 Pydantic 모델: 요청/응답 스키마
-
-이 파일의 역할:
-- API 요청과 응답의 데이터 구조를 정의하는 Pydantic 모델
-- 데이터 검증과 직렬화/역직렬화 처리
-- 타입 안정성 보장 및 자동 문서화 (OpenAPI/Swagger)
-
-왜 필요한가:
-- FastAPI는 Pydantic 모델을 기반으로 자동으로 API 문서를 생성
-- 요청 데이터의 유효성 검사를 자동으로 수행
-- 타입 힌팅을 통해 코드의 가독성과 안정성 향상
-- API 스펙을 코드로 명확하게 정의하여 프론트엔드와의 협업 용이
-
-주요 모델:
-- ChatMessage: 개별 채팅 메시지 (role, content)
-- ChatRequest: 채팅 API 요청 (message, conversation_id, history)
-- ChatResponse: 채팅 API 응답 (response, sources, conversation_id, timestamp)
-- StreamChunk: 스트리밍 응답 청크 (content, done, sources)
-- RestaurantInfo: 음식점 정보 (id, name, address, menu)
-
-사용 예시:
-- FastAPI 엔드포인트에서 request: ChatRequest로 타입 검증
-- 응답 모델로 response_model=ChatResponse 사용
 """
+
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+
+class ChatMessage(BaseModel):
+    """개별 채팅 메시지"""
+    role: str = Field(..., description="메시지 역할: 'user' 또는 'assistant'")
+    content: str = Field(..., description="메시지 내용")
+
+
+class ChatRequest(BaseModel):
+    """채팅 API 요청"""
+    message: str = Field(..., description="사용자 메시지")
+    conversation_id: Optional[str] = Field(None, description="대화 ID (선택사항)")
+    history: Optional[List[ChatMessage]] = Field(default=[], description="대화 기록 (선택사항)")
+
+
+class Source(BaseModel):
+    """검색 결과 소스"""
+    content: str = Field(..., description="검색된 문서 내용")
+    metadata: Dict[str, Any] = Field(default={}, description="메타데이터")
+    score: Optional[float] = Field(None, description="유사도 점수")
+
+
+
+
+class StreamChunk(BaseModel):
+    """스트리밍 응답 청크"""
+    content: str = Field(..., description="청크 내용")
+    done: bool = Field(default=False, description="스트리밍 완료 여부")
+    sources: Optional[List[Source]] = Field(None, description="참조된 소스 (완료 시)")
+
+
+class RecommendedMenu(BaseModel):
+    """추천 메뉴 정보"""
+    restaurant_name: str = Field(..., description="음식점명")
+    menu_name: str = Field(..., description="메뉴명")
+    price: str = Field(..., description="가격")
+    calories: str = Field(..., description="칼로리")
+    address: str = Field(..., description="주소")
+    category: str = Field(..., description="카테고리")
+    score: Optional[float] = Field(None, description="유사도 점수")
+
+
+class ChatResponse(BaseModel):
+    """채팅 API 응답"""
+    response: str = Field(..., description="챗봇 응답")
+    sources: List[Source] = Field(default=[], description="참조된 소스")
+    recommended_menus: List[RecommendedMenu] = Field(default=[], description="추천 메뉴 목록")
+    conversation_id: Optional[str] = Field(None, description="대화 ID")
+    timestamp: datetime = Field(default_factory=datetime.now, description="응답 시간")
+
+
+class RestaurantInfo(BaseModel):
+    """음식점 정보"""
+    id: str = Field(..., description="음식점 ID")
+    name: str = Field(..., description="음식점명")
+    address: str = Field(..., description="주소")
+    category: str = Field(..., description="카테고리")
+    menu: Optional[Dict[str, Any]] = Field(None, description="메뉴 정보")

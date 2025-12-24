@@ -131,7 +131,7 @@ class VectorStore:
     def similarity_search(
         self, 
         query: str, 
-        k: int = 4,
+        k: int = 8,
         filter: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """유사도 검색"""
@@ -160,6 +160,74 @@ class VectorStore:
         except Exception as e:
             logger.error(f"유사도 검색 실패: {e}")
             return []
+    
+    def search_with_filters(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        max_price: Optional[int] = None,
+        max_calories: Optional[int] = None,
+        k: int = 8
+    ) -> List[Dict[str, Any]]:
+        """필터링이 포함된 검색"""
+        try:
+            # 필터 조건 구성
+            where_filter = {}
+            
+            if category:
+                where_filter["category"] = category
+            
+            # 가격 필터 (ChromaDB는 숫자 비교를 위해 문자열로 저장된 경우 처리 필요)
+            # 실제 구현에서는 메타데이터의 price를 숫자로 변환하여 필터링
+            
+            # 쿼리를 벡터로 변환
+            query_embedding = self._embed_text(query)
+            
+            # ChromaDB에서 검색
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k * 2 if where_filter else k,  # 필터링 시 더 많이 가져와서 필터링
+                where=where_filter if where_filter else None
+            )
+            
+            # 결과 포맷팅 및 추가 필터링
+            formatted_results = []
+            if results['documents'] and len(results['documents'][0]) > 0:
+                for i in range(len(results['documents'][0])):
+                    metadata = results['metadatas'][0][i] if results['metadatas'] else {}
+                    
+                    # 가격 필터링
+                    if max_price:
+                        try:
+                            price = int(metadata.get("price", "999999"))
+                            if price > max_price:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # 칼로리 필터링
+                    if max_calories:
+                        try:
+                            calories = int(metadata.get("calories", "999999"))
+                            if calories > max_calories:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    formatted_results.append({
+                        "content": results['documents'][0][i],
+                        "metadata": metadata,
+                        "score": results['distances'][0][i] if results['distances'] else 0.0
+                    })
+                    
+                    # k개만 반환
+                    if len(formatted_results) >= k:
+                        break
+            
+            return formatted_results
+        except Exception as e:
+            logger.error(f"필터링 검색 실패: {e}")
+            return self.similarity_search(query, k=k)  # 필터링 실패 시 일반 검색
     
     def similarity_search_with_retriever(
         self,
