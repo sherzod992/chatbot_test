@@ -75,15 +75,17 @@ def test_openai_api_key(api_key: str):
 
 
 if __name__ == "__main__":
-    # rag_chain.py에서 API 키 가져오기
-    try:
-        from app.rag_chain import OPENAI_API_KEY
-        api_key = OPENAI_API_KEY
-        print(f"[INFO] rag_chain.py에서 API 키를 가져왔습니다.")
-    except Exception as e:
-        print(f"[WARNING] rag_chain.py에서 API 키를 가져올 수 없습니다: {e}")
+    # 환경 변수에서 API 키 가져오기
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        print(f"[WARNING] 환경 변수 OPENAI_API_KEY를 찾을 수 없습니다.")
         # 직접 입력
         api_key = input("OpenAI API 키를 입력하세요: ").strip()
+    else:
+        print(f"[INFO] 환경 변수에서 API 키를 가져왔습니다.")
     
     success = test_openai_api_key(api_key)
     

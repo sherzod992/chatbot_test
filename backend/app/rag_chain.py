@@ -14,9 +14,6 @@ from dotenv import load_dotenv
 # 환경 변수 로드
 load_dotenv()
 
-# OpenAI API 키 (환경 변수에서 가져오기)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
 
 class RAGChain:
     """RAG 파이프라인 관리 클래스"""
@@ -26,7 +23,7 @@ class RAGChain:
         # OpenAI LLM 초기화
         self.llm = ChatOpenAI(
             model="gpt-3.5-turbo",  # 또는 "gpt-4", "gpt-4-turbo-preview"
-            openai_api_key=OPENAI_API_KEY,
+            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             temperature=0.7
         )
         
