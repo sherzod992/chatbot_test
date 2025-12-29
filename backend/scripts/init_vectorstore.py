@@ -30,7 +30,38 @@ import sys  # 시스템 관련 기능 (경로 설정 등)
 import csv  # CSV 파일 읽기/쓰기 기능
 from pathlib import Path  # 파일 경로를 다루는 모듈 (Windows/Mac/Linux 호환)
 from collections import defaultdict  # 기본값이 있는 딕셔너리 생성 (음식점별로 메뉴 그룹화에 사용)
+import re  # 정규표현식 (텍스트 정제에 사용)
+from typing import List, Dict, Any, Tuple  # 타입 힌팅
 
+# LangChain import
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter  # 텍스트 청킹에 사용
+except ImportError:
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except ImportError:
+        # fallback: 간단한 텍스트 스플리터 구현
+        class RecursiveCharacterTextSplitter:
+            def __init__(self, chunk_size=500, chunk_overlap=50, length_function=len, separators=None):
+                self.chunk_size = chunk_size
+                self.chunk_overlap = chunk_overlap
+                self.length_function = length_function
+                self.separators = separators or ["\n\n", "\n", " ", ""]
+            
+            def split_text(self, text: str) -> List[str]:
+                """간단한 텍스트 분할 구현"""
+                if self.length_function(text) <= self.chunk_size:
+                    return [text]
+                
+                chunks = []
+                start = 0
+                while start < len(text):
+                    end = min(start + self.chunk_size, len(text))
+                    chunk = text[start:end]
+                    chunks.append(chunk)
+                    start = end - self.chunk_overlap
+                
+                return chunks
 # 프로젝트 루트 경로 설정
 # __file__은 현재 파일의 경로를 의미함 (예: backend/scripts/init_vectorstore.py)
 # .parent는 부모 디렉토리 (backend/scripts)
@@ -44,6 +75,37 @@ sys.path.insert(0, str(project_root))
 # 프로젝트 내부 모듈 import
 from app.vectorstore import VectorStore  # 벡터 저장소 클래스 (ChromaDB와 통신)
 from app.utils import logger  # 로그를 남기는 기능 (에러 추적, 디버깅용)
+
+
+def clean_text(text: str) -> str:
+    """
+    텍스트 정제 함수
+    
+    정제 작업:
+    - 연속된 공백 제거
+    - 특수문자 정리
+    - 줄바꿈 정규화
+    - 앞뒤 공백 제거
+    
+    Args:
+        text (str): 정제할 텍스트
+    
+    Returns:
+        str: 정제된 텍스트
+    """
+    if not text:
+        return ""
+    
+    # 연속된 공백을 하나로 변환
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 연속된 줄바꿈을 최대 2개로 제한
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # 앞뒤 공백 제거
+    text = text.strip()
+    
+    return text
 
 
 def format_restaurant_document(row):
@@ -90,7 +152,13 @@ def format_restaurant_document(row):
     
     # 리스트의 각 요소를 줄바꿈(\n)으로 연결하여 하나의 문자열로 만듦
     # 예: ["음식점명: 전주 비빔밥집", "주소: ..."] → "음식점명: 전주 비빔밥집\n주소: ..."
-    return "\n".join(doc_parts)
+    doc_text = "\n".join(doc_parts)
+    
+    # ===== 정제 단계 =====
+    # 텍스트 정제: 공백 정규화, 줄바꿈 정리 등
+    doc_text = clean_text(doc_text)
+    
+    return doc_text
 
 
 def load_csv_data(csv_path):
@@ -166,16 +234,73 @@ def load_csv_data(csv_path):
     return restaurants
 
 
+def chunk_documents(
+    texts: List[str],
+    metadatas: List[Dict[str, Any]],
+    ids: List[str],
+    chunk_size: int = 500,
+    chunk_overlap: int = 50
+) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    """
+    문서를 청크로 분할하는 함수
+    
+    Args:
+        texts: 원본 텍스트 리스트
+        metadatas: 메타데이터 리스트
+        ids: ID 리스트
+        chunk_size: 청크 최대 크기 (문자 수)
+        chunk_overlap: 청크 간 겹치는 문자 수
+    
+    Returns:
+        (청크된 텍스트 리스트, 청크된 메타데이터 리스트, 청크된 ID 리스트)
+    """
+    # LangChain의 RecursiveCharacterTextSplitter 사용
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""]  # 한국어에 적합한 구분자
+    )
+    
+    chunked_texts = []
+    chunked_metadatas = []
+    chunked_ids = []
+    
+    for i, (text, metadata, doc_id) in enumerate(zip(texts, metadatas, ids)):
+        # 텍스트를 청크로 분할
+        chunks = text_splitter.split_text(text)
+        
+        # 각 청크에 대해 메타데이터와 ID 생성
+        for chunk_idx, chunk in enumerate(chunks):
+            chunked_texts.append(chunk)
+            
+            # 메타데이터에 청크 정보 추가
+            chunk_metadata = metadata.copy()
+            chunk_metadata["chunk_index"] = chunk_idx
+            chunk_metadata["total_chunks"] = len(chunks)
+            chunked_metadatas.append(chunk_metadata)
+            
+            # 청크 ID 생성 (원본 ID + 청크 인덱스)
+            chunk_id = f"{doc_id}_chunk_{chunk_idx}"
+            chunked_ids.append(chunk_id)
+    
+    logger.info(f"문서 청킹 완료: {len(texts)}개 문서 → {len(chunked_texts)}개 청크")
+    
+    return chunked_texts, chunked_metadatas, chunked_ids
+
+
 def init_vectorstore_from_csv():
     """
     CSV 파일에서 데이터를 읽어서 벡터 데이터베이스에 저장하는 메인 함수
     
     전체 프로세스:
     1. CSV 파일에서 데이터 읽기
-    2. 각 메뉴를 텍스트 문서로 변환
-    3. 텍스트를 벡터(숫자 배열)로 변환
-    4. 벡터와 메타데이터를 ChromaDB에 저장
-    5. 테스트 검색으로 정상 작동 확인
+    2. 각 메뉴를 텍스트 문서로 변환 (구조화)
+    3. 텍스트 정제 (공백 정규화, 특수문자 정리)
+    4. 텍스트를 청크로 분할 (긴 문서를 작은 단위로 나눔)
+    5. 텍스트를 벡터(숫자 배열)로 변환 (임베딩)
+    6. 벡터와 메타데이터를 ChromaDB에 저장
+    7. 테스트 검색으로 정상 작동 확인
     """
     try:
         # ===== 1단계: 초기화 시작 메시지 =====
@@ -273,22 +398,46 @@ def init_vectorstore_from_csv():
                 # 예: "restaurant_1_menu_101" (음식점 1번의 메뉴 101번)
                 ids.append(f"restaurant_{restaurant_id}_menu_{menu['menu_id']}")
         
-        # ===== 7단계: 벡터 저장소에 추가 =====
+        print(f"총 {len(texts)}개 문서 생성 완료")
+        logger.info(f"총 {len(texts)}개 문서 생성 완료")
+        
+        # ===== 7단계: 문서 청킹 =====
+        # 긴 문서를 작은 청크로 분할하여 검색 정확도 향상
+        print("문서를 청크로 분할 중...")
+        logger.info("문서를 청크로 분할 중...")
+        
+        # 청킹 수행 (긴 문서를 작은 청크로 나눔)
+        chunked_texts, chunked_metadatas, chunked_ids = chunk_documents(
+            texts=texts,
+            metadatas=metadatas,
+            ids=ids,
+            chunk_size=500,  # 청크 최대 크기 (문자 수)
+            chunk_overlap=50  # 청크 간 겹치는 부분 (컨텍스트 유지)
+        )
+        
+        print(f"청킹 완료: {len(texts)}개 문서 → {len(chunked_texts)}개 청크")
+        logger.info(f"청킹 완료: {len(texts)}개 문서 → {len(chunked_texts)}개 청크")
+        
+        # ===== 8단계: 벡터 저장소에 추가 =====
         # 벡터 DB에 실제로 데이터 저장
-        print(f"{len(texts)}개 문서를 벡터 저장소에 추가 중...")
-        logger.info(f"{len(texts)}개 문서를 벡터 저장소에 추가 중...")
+        print(f"{len(chunked_texts)}개 청크를 벡터 저장소에 추가 중...")
+        logger.info(f"{len(chunked_texts)}개 청크를 벡터 저장소에 추가 중...")
         
         # add_documents 메서드 호출
         # 이 메서드 안에서:
         # 1. 각 텍스트를 벡터(숫자 배열)로 변환 (임베딩 모델 사용)
         # 2. 벡터, 텍스트, 메타데이터, ID를 ChromaDB에 저장
-        vectorstore.add_documents(texts=texts, metadatas=metadatas, ids=ids)
+        vectorstore.add_documents(
+            texts=chunked_texts, 
+            metadatas=chunked_metadatas, 
+            ids=chunked_ids
+        )
         
         # 저장 완료 메시지
-        print(f"벡터 저장소 초기화 완료: {len(texts)}개 문서 저장")
-        logger.info(f"벡터 저장소 초기화 완료: {len(texts)}개 문서 저장")
+        print(f"벡터 저장소 초기화 완료: {len(chunked_texts)}개 청크 저장")
+        logger.info(f"벡터 저장소 초기화 완료: {len(chunked_texts)}개 청크 저장")
         
-        # ===== 8단계: 테스트 검색 =====
+        # ===== 9단계: 테스트 검색 =====
         # 저장이 제대로 되었는지 테스트하기 위해 검색 실행
         test_query = "전주비빔밥"  # 검색할 키워드
         logger.info(f"테스트 검색 수행: '{test_query}'")
