@@ -231,12 +231,12 @@ export const useChat = (): UseChatReturn => {
 
   // 메시지 초기화
   const clearMessages = useCallback(() => {
-    setMessages([])
+    setMessages([]) 
     setConversationId(null)
     setError(null)
   }, [])
 
-  // 컴포넌트 언마운트 시 정리
+  // 컴포넌트 언마운트 시 
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
