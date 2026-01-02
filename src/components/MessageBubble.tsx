@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { User, Bot, Loader2 } from 'lucide-react'
 import { Message } from '@/types/chat'
 
@@ -5,10 +6,8 @@ interface MessageBubbleProps {
   message: Message
 }
 
-export const MessageBubble = ({ message }: MessageBubbleProps) => {
+export const MessageBubble = memo(({ message }: MessageBubbleProps) => {
   const isUser = message.role === 'user'
-  // message.content를 직접 사용 (상태 중복 방지)
-  // React가 props 변경을 감지하도록 함
 
   return (
     <div
@@ -44,7 +43,7 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
               <span className="text-sm">답변을 생성하고 있습니다...</span>
             </div>
           ) : message.content ? (
-            <p className="text-sm whitespace-pre-wrap break-words" key={`content-${message.content.length}`}>{message.content}</p>
+            <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
           ) : (
             <p className="text-sm text-gray-400 italic">응답을 기다리는 중...</p>
           )}
@@ -58,4 +57,16 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
       </div>
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  // content가 변경되면 항상 리렌더링 (스트리밍 중에는 content가 계속 변경됨)
+  // 다른 속성은 변경되지 않으면 리렌더링 방지
+  if (prevProps.message.id !== nextProps.message.id) return false
+  if (prevProps.message.content !== nextProps.message.content) return false
+  if (prevProps.message.isLoading !== nextProps.message.isLoading) return false
+  if (prevProps.message.role !== nextProps.message.role) return false
+  
+  // 모든 속성이 같으면 리렌더링 방지
+  return true
+})
+
+MessageBubble.displayName = 'MessageBubble'

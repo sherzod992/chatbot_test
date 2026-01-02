@@ -12,10 +12,15 @@ export const ChatWindow = () => {
   // 새 메시지가 추가되거나 업데이트되면 스크롤 (실시간 스트리밍 지원)
   useEffect(() => {
     // requestAnimationFrame을 사용하여 DOM 업데이트 후 스크롤
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    })
-  }, [messages])
+    // 스트리밍 중에는 즉시 스크롤하여 실시간 업데이트 보장
+    const timeoutId = setTimeout(() => {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' })
+      })
+    }, 0)
+    
+    return () => clearTimeout(timeoutId)
+  }, [messages, isLoading])
 
   return (
     <div className="flex flex-col h-screen bg-black">
@@ -87,7 +92,7 @@ export const ChatWindow = () => {
           <div className="max-w-4xl mx-auto">
             {messages.map((message) => (
               <MessageBubble 
-                key={`${message.id}-${message.content.length}-${message.content.slice(-10)}`} 
+                key={message.id} 
                 message={message} 
               />
             ))}

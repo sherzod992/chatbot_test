@@ -21,6 +21,7 @@ export const useChat = (): UseChatReturn => {
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamedContentRef = useRef<string>('')
   const updateCounterRef = useRef<number>(0)
+  const currentAssistantMessageIdRef = useRef<string | null>(null)
 
   // 메시지 전송
   const sendMessage = useCallback(async (content: string, useStreaming = true) => {
@@ -39,6 +40,7 @@ export const useChat = (): UseChatReturn => {
 
     // 보조 메시지 생성 (스트리밍용)
     const assistantMessageId = (Date.now() + 1).toString()
+    currentAssistantMessageIdRef.current = assistantMessageId
     const assistantMessage: Message = {
       id: assistantMessageId,
       role: 'assistant',
@@ -81,51 +83,64 @@ export const useChat = (): UseChatReturn => {
               updateCounterRef.current += 1
               const currentContent = streamedContentRef.current
               const updateCount = updateCounterRef.current
+              const msgId = currentAssistantMessageIdRef.current
               
-              console.log(`[onChunk #${Date.now()}] 청크 수신, 누적 길이: ${currentContent.length}, 새 청크: "${chunk.substring(0, 20)}...", 업데이트 #${updateCount}`)
+              const chunkReceiveTime = Date.now()
+              console.log(`[onChunk ${chunkReceiveTime}] 청크 수신, 누적 길이: ${currentContent.length}, 새 청크: "${chunk.substring(0, 20)}...", 업데이트 #${updateCount}, msgId: ${msgId}`)
               
-              // flushSync를 즉시 호출하여 비동기 배칭 방지
+              if (!msgId) {
+                console.warn('assistantMessageId가 없습니다')
+                return
+              }
+              
+              // flushSync를 즉시 호출하여 비동기 배칭 방지 및 동기적 DOM 업데이트 보장
+              // requestAnimationFrame 없이 직접 호출하여 지연 최소화
               flushSync(() => {
-                // 메시지 업데이트
                 setMessages((prev) => {
-                  const newMessages = prev.map((msg) => {
-                    if (msg.id === assistantMessageId) {
-                      // 완전히 새로운 객체 생성
-                      return { 
-                        id: msg.id,
-                        role: msg.role,
-                        content: currentContent, // 현재 값 직접 사용
-                        isLoading: false,
-                        timestamp: new Date() // 매번 새로운 타임스탬프
-                      }
-                    }
-                    return msg
-                  })
+                  // 이전 메시지 배열을 재사용하여 불필요한 복사 방지
+                  const msgIndex = prev.findIndex(msg => msg.id === msgId)
+                  if (msgIndex === -1) {
+                    console.warn('메시지를 찾을 수 없습니다:', msgId)
+                    return prev
+                  }
+                  
+                  // 해당 메시지만 새 객체로 교체
+                  const newMessages = [...prev]
+                  newMessages[msgIndex] = {
+                    ...newMessages[msgIndex],
+                    content: streamedContentRef.current,
+                    isLoading: false,
+                  }
                   return newMessages
                 })
               })
-              console.log(`[onChunk] 상태 업데이트 완료 #${updateCount}, 현재 길이: ${currentContent.length}`)
+              
+              const updateCompleteTime = Date.now()
+              console.log(`[onChunk ${updateCompleteTime}] 상태 업데이트 완료 #${updateCount}, 현재 길이: ${currentContent.length}, 처리 시간: ${updateCompleteTime - chunkReceiveTime}ms`)
             },
             // onComplete: 완료 시
             (fullResponse: string) => {
               console.log('스트리밍 완료, 전체 길이:', fullResponse.length)
               clearTimeout(streamTimeout)
+              const msgId = currentAssistantMessageIdRef.current
               
               // 최종 업데이트
               streamedContentRef.current = fullResponse || streamedContentRef.current
               setMessages((prev) =>
                 prev.map((msg) =>
-                  msg.id === assistantMessageId
+                  msg.id === msgId
                     ? { ...msg, content: streamedContentRef.current, isLoading: false }
                     : msg
                 )
               )
               setIsLoading(false)
+              currentAssistantMessageIdRef.current = null
             },
             // onError: 에러 시
             async (err: Error) => {
               console.error('스트리밍 에러:', err)
               clearTimeout(streamTimeout)
+              const msgId = currentAssistantMessageIdRef.current
               
               // 스트리밍 실패 시 일반 방식으로 fallback
               if (!hasReceivedChunk) {
@@ -136,7 +151,7 @@ export const useChat = (): UseChatReturn => {
                   setConversationId(response.conversation_id)
                   setMessages((prev) =>
                     prev.map((msg) =>
-                      msg.id === assistantMessageId
+                      msg.id === msgId
                         ? { ...msg, content: response.response, isLoading: false }
                         : msg
                     )
@@ -148,7 +163,7 @@ export const useChat = (): UseChatReturn => {
                   setError(err.message)
                   setMessages((prev) =>
                     prev.map((msg) =>
-                      msg.id === assistantMessageId
+                      msg.id === msgId
                         ? { ...msg, content: `오류가 발생했습니다: ${err.message}`, isLoading: false }
                         : msg
                     )
@@ -159,18 +174,20 @@ export const useChat = (): UseChatReturn => {
                 setError(err.message)
                 setMessages((prev) =>
                   prev.map((msg) =>
-                    msg.id === assistantMessageId
+                    msg.id === msgId
                       ? { ...msg, content: streamedContentRef.current || `오류가 발생했습니다: ${err.message}`, isLoading: false }
                       : msg
                   )
                 )
                 setIsLoading(false)
               }
+              currentAssistantMessageIdRef.current = null
             }
           )
         } catch (err) {
           console.error('스트리밍 예외:', err)
           clearTimeout(streamTimeout)
+          const msgId = currentAssistantMessageIdRef.current
           // 스트리밍 실패 시 일반 방식으로 fallback
           try {
             console.log('예외 발생, 일반 방식으로 재시도')
@@ -179,7 +196,7 @@ export const useChat = (): UseChatReturn => {
             setConversationId(response.conversation_id)
             setMessages((prev) =>
               prev.map((msg) =>
-                msg.id === assistantMessageId
+                msg.id === msgId
                   ? { ...msg, content: response.response, isLoading: false }
                   : msg
               )
@@ -191,13 +208,14 @@ export const useChat = (): UseChatReturn => {
             setError(errorMessage)
             setMessages((prev) =>
               prev.map((msg) =>
-                msg.id === assistantMessageId
+                msg.id === msgId
                   ? { ...msg, content: `오류가 발생했습니다: ${errorMessage}`, isLoading: false }
                   : msg
               )
             )
             setIsLoading(false)
           }
+          currentAssistantMessageIdRef.current = null
         }
       } else {
         // 일반 방식

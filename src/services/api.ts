@@ -85,6 +85,7 @@ export const sendChatMessageStream = async (
                   // 버퍼에 남은 데이터 처리
                   if (buffer.trim()) {
                     processBuffer(buffer)
+                    buffer = ''
                   }
                   if (!isCompleted) {
                     console.log('스트리밍 완료, 전체 응답 길이:', fullResponse.length)
@@ -100,12 +101,30 @@ export const sendChatMessageStream = async (
                 const chunk = decoder.decode(value, { stream: true })
                 buffer += chunk
                 
-                // SSE 형식: "data: {...}\n\n" - 즉시 처리
+                // SSE 형식: "data: {...}\n\n" - 가능한 한 즉시 처리
+                // 여러 이벤트가 버퍼에 있을 수 있으므로 모두 처리
+                let processed = false
                 while (buffer.includes('\n\n')) {
                   const endIndex = buffer.indexOf('\n\n')
                   const eventData = buffer.substring(0, endIndex)
                   buffer = buffer.substring(endIndex + 2)
                   processBuffer(eventData)
+                  processed = true
+                }
+                
+                // 버퍼에 데이터가 남아있지만 \n\n이 없는 경우
+                // (마지막 불완전한 이벤트) - 일부 데이터라도 처리 시도
+                if (!processed && buffer.length > 0 && buffer.includes('data: ')) {
+                  // 마지막 완전한 라인만 처리
+                  const lines = buffer.split('\n')
+                  if (lines.length > 1) {
+                    // 마지막 라인을 제외한 모든 라인 처리
+                    const completeLines = lines.slice(0, -1).join('\n')
+                    buffer = lines[lines.length - 1] // 마지막 불완전한 라인은 버퍼에 유지
+                    if (completeLines.trim()) {
+                      processBuffer(completeLines)
+                    }
+                  }
                 }
               }
             } catch (streamError) {
@@ -133,10 +152,12 @@ export const sendChatMessageStream = async (
                 
                 const data = JSON.parse(jsonStr)
                 
-                // content 처리
+                // content 처리 - 즉시 onChunk 호출
                 if (data.content && typeof data.content === 'string' && data.content.length > 0) {
                   fullResponse += data.content
-                  console.log(`[청크] 누적 길이: ${fullResponse.length}, 새 청크: "${data.content.substring(0, 20)}..."`)
+                  const chunkTime = Date.now()
+                  console.log(`[청크 ${chunkTime}] 누적 길이: ${fullResponse.length}, 새 청크: "${data.content.substring(0, 20)}..."`)
+                  // 즉시 동기적으로 onChunk 호출 (비동기 지연 방지)
                   onChunk(data.content)
                 }
                 
