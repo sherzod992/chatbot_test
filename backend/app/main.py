@@ -8,9 +8,10 @@ from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from app.models import ChatRequest, ChatResponse, StreamChunk, Source
 from app.rag_chain import get_rag_chain
-from app.utils import logger
+from app.utils import logger, validate_question
 import json
 import uuid
+import time
 from datetime import datetime
 
 # FastAPI 앱 생성
@@ -60,6 +61,18 @@ async def chat(request: ChatRequest):
     - 전체 응답을 한 번에 반환
     """
     try:
+        # 질문 검증 (LLM 호출 전에 수행)
+        is_valid, rejection_message = validate_question(request.message)
+        if not is_valid:
+            # 거절 메시지만 반환 (소스 없음, 추천 메뉴 없음)
+            return ChatResponse(
+                response=rejection_message,
+                sources=[],
+                recommended_menus=[],
+                conversation_id=request.conversation_id or str(uuid.uuid4()),
+                timestamp=datetime.now()
+            )
+        
         # RAG 체인 가져오기
         rag_chain = get_rag_chain()
         
@@ -127,7 +140,33 @@ async def chat_stream(request: ChatRequest):
     - 질문을 받아 벡터 검색 + LLM을 통해 답변 생성
     - 응답을 청크 단위로 스트리밍
     """
+    # 요청 받은 시간 기록
+    request_start_time = time.time()
+    
     try:
+        # 질문 검증 (LLM 호출 전에 수행)
+        is_valid, rejection_message = validate_question(request.message)
+        if not is_valid:
+            # 거절 메시지를 스트리밍 형식으로 즉시 반환
+            async def reject():
+                # 거절 메시지를 한 번에 전송
+                chunk = StreamChunk(
+                    content=rejection_message,
+                    done=True,
+                    sources=[]
+                )
+                yield f"data: {chunk.model_dump_json()}\n\n"
+            
+            return EventSourceResponse(
+                reject(),
+                headers={
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "Cache-Control": "no-cache",
+                    "Content-Type": "text/event-stream",
+                }
+            )
+        
         # RAG 체인 가져오기
         rag_chain = get_rag_chain()
         
@@ -157,8 +196,12 @@ async def chat_stream(request: ChatRequest):
                     for r in search_results
                 ]
                 
-                # 스트리밍 응답 생성 (즉시 시작)
+                # 스트리밍 시작 시간 기록
+                stream_start_time = time.time()
+                request_to_stream_time = stream_start_time - request_start_time
                 logger.info("스트리밍 시작")
+                logger.info(f"[요청 처리] 요청 수신부터 스트리밍 시작까지: {request_to_stream_time:.3f}초")
+                
                 chunk_count = 0
                 sent_count = 0
                 async for chunk in rag_chain.stream(
@@ -187,7 +230,13 @@ async def chat_stream(request: ChatRequest):
                     logger.info(f"청크 #{sent_count} 전송, SSE 길이: {len(sse_data)}, content: {chunk[:30]}...")
                     yield sse_data
                 
+                # 스트리밍 완료 시간 기록
+                stream_end_time = time.time()
+                stream_duration = stream_end_time - stream_start_time
+                total_duration = stream_end_time - request_start_time
+                
                 logger.info(f"스트리밍 완료, 생성된 청크: {chunk_count}개, 전송된 청크: {sent_count}개, 전체 길이: {len(full_content)}")
+                logger.info(f"[요약] 스트리밍 소요 시간: {stream_duration:.3f}초, 전체 요청 처리 시간: {total_duration:.3f}초")
                 
                 # 최소 하나의 청크도 전송되지 않았다면 에러 청크 전송
                 if sent_count == 0:

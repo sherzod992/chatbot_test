@@ -43,3 +43,54 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def validate_question(question: str) -> tuple[bool, str]:
+    """
+    질문이 전주 음식점/음식 관련인지 검증
+    
+    Args:
+        question: 사용자 질문
+        
+    Returns:
+        (is_valid, rejection_message): 
+        - is_valid: True면 허용, False면 거절
+        - rejection_message: 거절 시 출력할 메시지
+    """
+    # 거절 메시지 (고정)
+    REJECTION_MESSAGE = "이 서비스는 전주 지역 음식점 추천만 제공하고 있어요.\n전주 맛집이나 음식 관련 질문을 해 주세요 🙂"
+    
+    question_lower = question.lower()
+    
+    # 1. 금지 키워드 체크 (무조건 거절)
+    forbidden_keywords = [
+        "노래", "음악", "가수", "앨범", "곡", "뮤직",
+        "영화", "드라마", "배우", "감독", "영화관", "극장",
+        "번역", "translate", "translation",
+        "코딩", "프로그래밍", "코드", "개발", "프로그래머",
+        "수학", "수식", "계산", "방정식",
+        "날씨", "기상", "온도", "비", "눈",
+        "뉴스", "시사", "정치", "경제"
+    ]
+    
+    for keyword in forbidden_keywords:
+        if keyword in question_lower:
+            return (False, REJECTION_MESSAGE)
+    
+    # 2. 허용 키워드 체크 (하나라도 있으면 허용)
+    allowed_keywords = [
+        "음식", "식당", "맛집", "음식점", "레스토랑",
+        "메뉴", "음식 메뉴", "요리",
+        "가격", "비용", "돈", "원",
+        "칼로리", "열량", "다이어트",
+        "전주", "전주시",
+        "배달", "포장", "테이크아웃",
+        "추천", "어디", "어떤", "맛있는", "좋은"
+    ]
+    
+    for keyword in allowed_keywords:
+        if keyword in question_lower:
+            return (True, "")
+    
+    # 3. 허용 키워드가 없으면 거절
+    return (False, REJECTION_MESSAGE)
